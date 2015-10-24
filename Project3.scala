@@ -21,6 +21,8 @@ import akka.pattern.ask
 import akka.util.Timeout
 import scala.concurrent.Await
 
+//case class Work(UFID : String) extends Message
+
 
 trait Message
 case object getSucessor extends Message
@@ -48,7 +50,8 @@ class Node(numNodes : Int , m:Int, hashOfFistNode : Int, system : ActorSystem,no
           //TODO : implement a data strcuture to hold finger table for the guy.
           //TODO : impleemnt three functions find_sucessor find_predecessor and closest_preceding_finger.
   
-  var finger= Array.ofDim[Int](m, 3);
+  var finger= Array.ofDim[Int](m, 2);
+
   
   for(i<-0 to m){
     
@@ -62,28 +65,61 @@ class Node(numNodes : Int , m:Int, hashOfFistNode : Int, system : ActorSystem,no
   
   def receive = {
     case "firstNode"  => nodeId = nodeid
-      initFingerTable();
-    case "New Node" => join(hashOfFistNode);
+    initFingerTable();
+    //printFingerTable();
+    case "New Node" => nodeId = nodeid;
+      getFirstStartForNode();
+      join(hashOfFistNode);
+    //printFingerTable();
     case getSucessor => sender ! sucessor
-    case Find_Sucessor(id) => sender ! find_successor(id)
+    case Find_Sucessor(id) => println("Message recieved Find_Sucessor with an id  :" + id)
+      sender ! find_successor(id)
     case Find_Predecessor(id) => sender! find_predecessor(id)
     case Set_Predecessor(id) => predecessor = id;
     case Update_Finger_Table(n,i) => update_finger_table(n, i)
+    case "test"  =>println("test received");
+  }
+  
+  def printFingerTable() = {
+    for(i<- 0 to m-1)
+    {
+      for(j<- 0 to 1){
+        System.out.print(finger(i)(j)+" ");
+      }
+      println;
+    }
+   
+    
+  }
+  
+  def getFirstStartForNode() = {
+    
+    for ( i <- 0 to m-1){
+              finger(i)(0) = (nodeId + Math.pow(2,i).toInt) % (Math.pow(2,m).toInt);
+              finger(i)(1) = 0;         
+     
+  }
   }
   
   def initFingerTable() ={
-        for ( i <- 1 to m){
+        for ( i <- 0 to m-1){
+              finger(i)(0) = (nodeId + Math.pow(2,i).toInt) % (Math.pow(2,m).toInt);
               finger(i)(1) = nodeId;
+             
+              
         }
         predecessor  = nodeId;
   }
 
   def join(n : Int ) = {
+      var isFound = isExsist(n);
+      //println("Inside join the isFound is :" + isFound);
        if(isExsist(n)){
+               //println("You are in isExist()");
                init_finger_table(n);
                update_others();
        }else{
-             for( i <- 1 to m){
+             for( i <- 0 to m-1){
                    finger(i)(0)= nodeId;
              }
              predecessor = nodeId;
@@ -92,19 +128,27 @@ class Node(numNodes : Int , m:Int, hashOfFistNode : Int, system : ActorSystem,no
   }
   
   def init_finger_table(n : Int) = {
+    //println("Value of n in init_finger_table:",n);
        var n_actor = getActorRef(n);
+     //  println("got the actroRef of :" + n);
        implicit val timeout = Timeout(1 seconds)
-       var n_future =  n_actor ? Find_Sucessor(finger(1)(0)); //finger(1)(0) we should replace with nodeId + 1;
-       finger(1)(1) = Await.result(n_future,timeout.duration).asInstanceOf[Int]
-       sucessor = finger(1)(1);
-       var m_actor = getActorRef(finger(1)(1));
-       var m_future = m_actor ? Find_Predecessor(finger(1)(1));
+       println("Path of actor  " + n_actor.path  )
+       println(finger(0)(0))
+       n_actor ! "test";
+       var n_future =  n_actor ? Find_Sucessor(finger(0)(0)); //finger(1)(0) we should replace with nodeId + 1;// (nodeId + 2^(i-1)) % 2^m
+       finger(0)(1) = Await.result(n_future,timeout.duration).asInstanceOf[Int]
+       //println("result of future in init_finger_table :" + finger(0)(1));
+       sucessor = finger(0)(1);
+       //println("Inside init_finger_table, successor is",sucessor);
+       var m_actor = getActorRef(finger(0)(1));
+       var m_future = m_actor ? Find_Predecessor(finger(0)(1));
        predecessor = Await.result(m_future,timeout.duration).asInstanceOf[Int]
+       
        m_actor ! Set_Predecessor(nodeId);
        
        
        //now update the finger table.
-       for(i <- 1 to m-1){
+       for(i <- 0 to m-2){
          if((finger(i+1)(0) >= n)&&(finger(i+1)(0) <  finger(i)(1))){
            finger(i+1)(1) = finger(i)(1);
          }
@@ -148,7 +192,7 @@ class Node(numNodes : Int , m:Int, hashOfFistNode : Int, system : ActorSystem,no
    if (isExsist(temp)) {
            temp_actor = getActorRef(temp);
            implicit val timeout = Timeout(1 seconds)
-           var future = temp_actor ? getSucessor // enabled by the â€œaskâ€ import
+           var future = temp_actor ? getSucessor // enabled by the “ask” import
            temp_successor = Await.result(future, timeout.duration).asInstanceOf[Int];
            
    }
@@ -164,7 +208,7 @@ class Node(numNodes : Int , m:Int, hashOfFistNode : Int, system : ActorSystem,no
        if (isExsist(temp)) {
                temp_actor = getActorRef(temp);
                implicit val timeout = Timeout(5 seconds)
-               var future = temp_actor ? getSucessor // enabled by the â€œaskâ€ import
+               var future = temp_actor ? getSucessor // enabled by the “ask” import
                temp_successor = Await.result(future, timeout.duration).asInstanceOf[Int];
                
        }
@@ -197,30 +241,49 @@ class Node(numNodes : Int , m:Int, hashOfFistNode : Int, system : ActorSystem,no
  //get the reference of the actor from the id
  def getActorRef(temp : Int) : ActorRef ={
              var isFound : ActorRef= null;
-                      implicit val timeout = 1000;
+                      implicit val timeout = Timeout(1 second);
                        var name = "akka://Master/user/" + temp.toString();
-                    system.actorSelection(name).resolveOne()(timeout).onComplete {
+                /**
+                   system.actorSelection(name).resolveOne()(timeout).onComplete {
                       case Success(actor) => 
                                  isFound = actor;
                       case Failure(ex) =>
                               println("actor not found");
                            
-                        }
+                        }**/
+                    //   println("inside getActorRef name is :" + name)
+                        var future =   system.actorSelection(name).resolveOne()(timeout);
+                   
+                   var actor : ActorRef = Await.result(future,timeout.duration).asInstanceOf[ActorRef];
+                   
+                   if(actor != null) isFound = actor;
+                       
    return isFound;
  }
  
  //check if the actor with this id exsists.
  def isExsist(id : Int) : Boolean = {
-    var isFound = false;
-                      implicit val timeout = 1000;
+   var isFound = false;
+                      implicit val timeout = Timeout(1 second);
                        var name = "akka://Master/user/" + id.toString();
-                    system.actorSelection(name).resolveOne()(timeout).onComplete {
-                      case Success(actor) => 
-                                 isFound = true;
+                       //System.out.println("You are in isExist again!")
+                       //println(name);
+               /**     system.actorSelection(name).resolveOne()(timeout).onComplete {
+                      case Success(actor) => println("here")
+                                 isFound = true; 
+                                 println("value of is found : " + isFound);
                       case Failure(ex) =>
                               println("actor not found");
-                              isFound = false;
+                              isFound = false; 
                         }
+                        *
+                        */
+                    var future =   system.actorSelection(name).resolveOne()(timeout);
+                   
+                   var actor = Await.result(future,timeout.duration).asInstanceOf[ActorRef];
+                   
+                   if(actor != null) isFound = true;
+                    
    return isFound;
 }
  
@@ -256,11 +319,16 @@ object Project3 {
     var name = createIdentifier(m,"node"+0);
     hashOfFirstNode = name.toInt;
     actor =  system.actorOf(Props(new Node(numNodes,m,0,system,name.toInt)), name = name);
+  //  System.out.println(actor);
+    println("first node created with id :" + name.toInt);
+  //  println(actor.path)
     actor ! "firstNode";
      for(i<-1 to numNodes-1){
        
         name = createIdentifier(m,"node"+i);
        actor = system.actorOf(Props(new Node(numNodes,m,hashOfFirstNode,system,name.toInt)), name = name);
+       //System.out.println(actor)
+       println("new node created with id : " + name.toInt);
        actor ! "New Node"
      }
     
@@ -271,7 +339,7 @@ object Project3 {
         val str = SHA(nodeName.toString);
         var arr = str.toString().getBytes();
    var tem = "";
-     for( i <- 0 to m){
+     for( i <- 0 to m-1){
            if(isSet(arr,i)){
              tem = tem+"1";
            }
@@ -279,6 +347,7 @@ object Project3 {
              tem = tem+"0";
            }
      }
+    //println("This is:" , tem);
      
     var  cryptedName = Integer.parseInt(tem, 2);
     
