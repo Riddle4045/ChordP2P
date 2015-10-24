@@ -44,7 +44,7 @@ class Master extends Actor {
   }
 }
 
-class Node(numNodes : Int , m:Int, hashOfFistNode : Int, system : ActorSystem) extends Actor {
+class Node(numNodes : Int , m:Int, hashOfFistNode : Int, system : ActorSystem,nodeid : Int) extends Actor {
           //TODO : implement a data strcuture to hold finger table for the guy.
           //TODO : impleemnt three functions find_sucessor find_predecessor and closest_preceding_finger.
   
@@ -61,8 +61,8 @@ class Node(numNodes : Int , m:Int, hashOfFistNode : Int, system : ActorSystem) e
   var nodeId =0;
   
   def receive = {
-    case s : String => println("got a string");
-    case "firstNode"  => initFingerTable();
+    case "firstNode"  => nodeId = nodeid
+      initFingerTable();
     case "New Node" => join(hashOfFistNode);
     case getSucessor => sender ! sucessor
     case Find_Sucessor(id) => sender ! find_successor(id)
@@ -72,7 +72,10 @@ class Node(numNodes : Int , m:Int, hashOfFistNode : Int, system : ActorSystem) e
   }
   
   def initFingerTable() ={
-    
+        for ( i <- 1 to m){
+              finger(i)(1) = nodeId;
+        }
+        predecessor  = nodeId;
   }
 
   def join(n : Int ) = {
@@ -91,7 +94,7 @@ class Node(numNodes : Int , m:Int, hashOfFistNode : Int, system : ActorSystem) e
   def init_finger_table(n : Int) = {
        var n_actor = getActorRef(n);
        implicit val timeout = Timeout(1 seconds)
-       var n_future =  n_actor ? Find_Sucessor(finger(1)(0));
+       var n_future =  n_actor ? Find_Sucessor(finger(1)(0)); //finger(1)(0) we should replace with nodeId + 1;
        finger(1)(1) = Await.result(n_future,timeout.duration).asInstanceOf[Int]
        sucessor = finger(1)(1);
        var m_actor = getActorRef(finger(1)(1));
@@ -249,13 +252,16 @@ object Project3 {
           
     }
     val system = ActorSystem("Master");
-    //System.out.println(m);
     var actor : ActorRef = null;
-     for(i<-0 to numNodes-1){
+    var name = createIdentifier(m,"node"+0);
+    hashOfFirstNode = name.toInt;
+    actor =  system.actorOf(Props(new Node(numNodes,m,0,system,name.toInt)), name = name);
+    actor ! "firstNode";
+     for(i<-1 to numNodes-1){
        
-       val name = createIdentifier(m,"node"+i);
-       val system = ActorSystem("Master");
-       actor = system.actorOf(Props(new Master), name = name);
+        name = createIdentifier(m,"node"+i);
+       actor = system.actorOf(Props(new Node(numNodes,m,hashOfFirstNode,system,name.toInt)), name = name);
+       actor ! "New Node"
      }
     
   }
