@@ -187,7 +187,7 @@ class Node(numNodes : Int , m:Int, hashOfFistNode : Int, system : ActorSystem,no
        p_actor ! Update_Finger_Table(s,i);
         
       }else{
-   //   println("FUCK YOU SCALA AND DOBRA!")
+
       }
   }
  
